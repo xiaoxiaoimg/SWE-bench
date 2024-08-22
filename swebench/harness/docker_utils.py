@@ -316,3 +316,4 @@ def should_remove(
         if cache_level in {"none", "base", "env"} and (clean or not existed_before):
             return True
     return False
+# Minor modification to force Git to recognize changes
