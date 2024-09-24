@@ -1,18 +1,14 @@
-from __future__ import annotations
-
 import docker
 import os
 import signal
 import tarfile
-import threading
+import multiprocessing
 import time
 import traceback
 from pathlib import Path
-
 from docker.models.containers import Container
 
 HEREDOC_DELIMITER = "EOF_1399519320"  # different from dataset HEREDOC_DELIMITERs!
-
 
 def copy_to_container(container: Container, src: Path, dst: Path):
     """
@@ -98,116 +94,39 @@ def remove_image(client, image_id, logger=None):
         )
 
 
-def cleanup_container(client, container, logger):
-    """
-    Stop and remove a Docker container.
-    Performs this forcefully if the container cannot be stopped with the python API.
-
-    Args:
-        client (docker.DockerClient): Docker client.
-        container (docker.models.containers.Container): Container to remove.
-        logger (logging.Logger): Logger to use for output. If None, print to stdout
-    """
-    if not container:
-        return
-
-    container_id = container.id
-
-    if not logger:
-        # if logger is None, print to stdout
-        log_error = print
-        log_info = print
-        raise_error = True
-    elif logger == "quiet":
-        # if logger is "quiet", don't print anything
-        log_info = lambda x: None
-        log_error = lambda x: None
-        raise_error = True
-    else:
-        # if logger is a logger object, use it
-        log_error = logger.info
-        log_info = logger.info
-        raise_error = False
-
-    # Attempt to stop the container
-    try:
-        if container:
-            log_info(f"Attempting to stop container {container.name}...")
-            container.stop(timeout=15)
-    except Exception as e:
-        log_error(
-            f"Failed to stop container {container.name}: {e}. Trying to forcefully kill..."
-        )
-        try:
-            # Get the PID of the container
-            container_info = client.api.inspect_container(container_id)
-            pid = container_info["State"].get("Pid", 0)
-
-            # If container PID found, forcefully kill the container
-            if pid > 0:
-                log_info(
-                    f"Forcefully killing container {container.name} with PID {pid}..."
-                )
-                os.kill(pid, signal.SIGKILL)
-            else:
-                log_error(f"PID for container {container.name}: {pid} - not killing.")
-        except Exception as e2:
-            if raise_error:
-                raise e2
-            log_error(
-                f"Failed to forcefully kill container {container.name}: {e2}\n"
-                f"{traceback.format_exc()}"
-            )
-
-    # Attempt to remove the container
-    try:
-        log_info(f"Attempting to remove container {container.name}...")
-        container.remove(force=True)
-        log_info(f"Container {container.name} removed.")
-    except Exception as e:
-        if raise_error:
-            raise e
-        log_error(
-            f"Failed to remove container {container.name}: {e}\n"
-            f"{traceback.format_exc()}"
-        )
-
-
 def exec_run_with_timeout(container, cmd, timeout: int|None=60):
     """
     Run a command in a container with a timeout.
-
-    Args:
-        container (docker.Container): Container to run the command in.
-        cmd (str): Command to run.
-        timeout (int): Timeout in seconds.
     """
     # Local variables to store the result of executing the command
-    exec_result = ''
+    exec_result = None
     exec_id = None
     exception = None
-    timed_out = False
 
     # Wrapper function to run the command
     def run_command():
         nonlocal exec_result, exec_id, exception
         try:
             exec_id = container.client.api.exec_create(container.id, cmd)["Id"]
-            exec_stream = container.client.api.exec_start(exec_id, stream=True)
-            for chunk in exec_stream:
-                exec_result += chunk.decode()
+            exec_result = container.client.api.exec_start(exec_id)
         except Exception as e:
             exception = e
 
-    # Start the command in a separate thread
-    thread = threading.Thread(target=run_command)
-    start_time = time.time()
-    thread.start()
-    thread.join(timeout)
+    # Start the command in a separate process
+    process = multiprocessing.Process(target=run_command)
+    process.start()
+    process.join(timeout)
+
+    if process.is_alive():
+        process.terminate()
+        raise TimeoutError(f"Command '{cmd}' timed out after {timeout} seconds")
 
     if exception:
         raise exception
 
+<<<<<<< HEAD
+    return exec_result
+=======
     # If the thread is still alive, the command timed out
     if thread.is_alive():
         if exec_id is not None:
@@ -316,3 +235,5 @@ def should_remove(
         if cache_level in {"none", "base", "env"} and (clean or not existed_before):
             return True
     return False
+# Minor modification to force Git to recognize changes
+>>>>>>> 8f96fc81646d581064500ea0badf89ed99d82278
