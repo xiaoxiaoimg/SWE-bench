@@ -72,7 +72,7 @@ class Repo:
             resolved_issues (list): list of issue numbers referenced by PR
         """
         # Define 1. issue number regex pattern 2. comment regex pattern 3. keywords
-        issues_pat = re.compile(r"(\w+)\s+\#(\d+)")
+        issues_pat = re.compile(r"(\w+)\s+#(\d+)")
         comments_pat = re.compile(r"(?s)<!--.*?-->")
         keywords = {
             "close",
@@ -98,6 +98,12 @@ class Repo:
         # Remove comments from text
         text = comments_pat.sub("", text)
         # Look for issue numbers in text via scraping <keyword, number> patterns
+        resolved_issues = []
+        for match in issues_pat.finditer(text):
+            keyword, number = match.groups()
+            if keyword.lower() in keywords:
+                resolved_issues.append(number)
+        return resolved_issues
         references = dict(issues_pat.findall(text))
         resolved_issues = list()
         if references:
