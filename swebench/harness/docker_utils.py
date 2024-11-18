@@ -177,10 +177,38 @@ def exec_run_with_timeout(container, cmd, timeout: int|None=60):
     """
     Run a command in a container with a timeout.
 
-    Args:
+    # Wrapper function to run the command
+    def run_command(container, cmd):
+        nonlocal exec_result, exec_id, exception
+        try:
+            exec_id = container.client.api.exec_create(container.id, cmd)['Id']
+            exec_result = container.client.api.exec_start(exec_id)
+        except Exception as e:
+            exception = e
+    def run_command(container, cmd):
+        nonlocal exec_result, exec_id, exception
+    # Start the command in a separate process
+    process = multiprocessing.Process(target=run_command, args=(container, cmd))
+    process.start()
+    process.join(timeout)
+
+    if process.is_alive():
+        process.terminate()
+        raise TimeoutError(f"Command '{cmd}' timed out after {timeout} seconds")
+            exec_id = container.client.api.exec_create(container.id, cmd)['Id']
+            exec_result = container.client.api.exec_start(exec_id)
+        except Exception as e:
+            exception = e
         container (docker.Container): Container to run the command in.
         cmd (str): Command to run.
-        timeout (int): Timeout in seconds.
+    # Start the command in a separate process
+    process = multiprocessing.Process(target=run_command, args=(container, cmd))
+    process.start()
+    process.join(timeout)
+
+    if process.is_alive():
+        process.terminate()
+        raise TimeoutError(f"Command '{cmd}' timed out after {timeout} seconds")
     """
     # Local variables to store the result of executing the command
     exec_result = ''
